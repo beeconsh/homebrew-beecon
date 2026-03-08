@@ -1,0 +1,211 @@
+# update-formula.yml
+#
+# Automatically updates the Homebrew formula when a new beecon CLI release is published.
+# Downloads all 4 platform artifacts, computes SHA256 checksums, patches the formula,
+# and pushes the update to main.
+#
+# Triggered by:
+#   1. repository_dispatch from the beeconsh/cli repo (automated releases)
+#   2. workflow_dispatch for manual runs (enter a version like "0.2.0" or "v0.2.0")
+
+name: Update Formula
+
+on:
+  repository_dispatch:
+    types: [update-formula]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g., 0.2.0 or v0.2.0)"
+        required: true
+        type: string
+
+jobs:
+  update-formula:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout this tap repository ──────────────────────────────────
+      - name: Checkout tap repo
+        uses: actions/checkout@v4
+
+      # ── 2. Determine the target version ──────────────────────────────────
+      # Accepts version from either trigger source and strips any leading "v".
+      - name: Determine version
+        id: version
+        run: |
+          # Pull version from the appropriate trigger source
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            RAW_VERSION="${{ github.event.client_payload.version }}"
+          else
+            RAW_VERSION="${{ github.event.inputs.version }}"
+          fi
+
+          # Validate that we actually received a version
+          if [ -z "$RAW_VERSION" ]; then
+            echo "::error::No version provided. Aborting."
+            exit 1
+          fi
+
+          # Strip leading 'v' to get bare semver (e.g., "v0.2.0" -> "0.2.0")
+          VERSION="${RAW_VERSION#v}"
+
+          echo "Using version: ${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      # ── 3. Download artifacts and compute SHA256 checksums ───────────────
+      # Downloads all 4 platform binaries from the beeconsh/cli release.
+      # Fails immediately if any artifact is missing or has an empty checksum.
+      - name: Download and checksum artifacts
+        id: checksums
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.version.outputs.version }}"
+          BASE_URL="https://github.com/beeconsh/cli/releases/download/v${VERSION}"
+
+          # Artifact names in the exact order they appear in the formula:
+          #   1. darwin_arm64
+          #   2. darwin_amd64
+          #   3. linux_arm64
+          #   4. linux_amd64
+          ARTIFACTS=(
+            "beecon_darwin_arm64.tar.gz"
+            "beecon_darwin_amd64.tar.gz"
+            "beecon_linux_arm64.tar.gz"
+            "beecon_linux_amd64.tar.gz"
+          )
+
+          # Output variable names matching the artifact order
+          OUTPUT_NAMES=(
+            "sha_darwin_arm64"
+            "sha_darwin_amd64"
+            "sha_linux_arm64"
+            "sha_linux_amd64"
+          )
+
+          for i in "${!ARTIFACTS[@]}"; do
+            artifact="${ARTIFACTS[$i]}"
+            output_name="${OUTPUT_NAMES[$i]}"
+            url="${BASE_URL}/${artifact}"
+
+            echo "Downloading ${artifact}..."
+            if ! curl -fSL --retry 3 --retry-delay 5 -o "${artifact}" "${url}"; then
+              echo "::error::Failed to download ${artifact} from ${url}"
+              exit 1
+            fi
+
+            # Compute SHA256 and extract just the hash
+            sha=$(sha256sum "${artifact}" | awk '{print $1}')
+
+            # Validate the checksum is non-empty and looks like a valid SHA256 (64 hex chars)
+            if [ -z "$sha" ] || [ ${#sha} -ne 64 ]; then
+              echo "::error::Invalid SHA256 for ${artifact}: '${sha}'"
+              exit 1
+            fi
+
+            echo "${artifact}: ${sha}"
+            echo "${output_name}=${sha}" >> "$GITHUB_OUTPUT"
+          done
+
+      # ── 4. Update the formula file ──────────────────────────────────────
+      # Replaces the version and all 4 sha256 values in sequence.
+      # Uses a Python script to ensure positional correctness — each sha256
+      # is replaced in the exact order it appears in the file.
+      - name: Update formula
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA_DARWIN_ARM64="${{ steps.checksums.outputs.sha_darwin_arm64 }}"
+          SHA_DARWIN_AMD64="${{ steps.checksums.outputs.sha_darwin_amd64 }}"
+          SHA_LINUX_ARM64="${{ steps.checksums.outputs.sha_linux_arm64 }}"
+          SHA_LINUX_AMD64="${{ steps.checksums.outputs.sha_linux_amd64 }}"
+
+          FORMULA="Formula/beecon.rb"
+
+          # Use Python to do sequential replacement of sha256 values.
+          # This avoids sed ordering issues — it replaces the Nth sha256 line
+          # with the Nth checksum, preserving the formula's block structure.
+          python3 << 'PYEOF'
+          import re
+          import sys
+          import os
+
+          formula_path = os.environ["FORMULA"]
+          version = os.environ["VERSION"]
+          checksums = [
+              os.environ["SHA_DARWIN_ARM64"],
+              os.environ["SHA_DARWIN_AMD64"],
+              os.environ["SHA_LINUX_ARM64"],
+              os.environ["SHA_LINUX_AMD64"],
+          ]
+
+          with open(formula_path, "r") as f:
+              content = f.read()
+
+          # Update the version line
+          content = re.sub(
+              r'(^\s*version\s+")[^"]+(")',
+              rf'\g<1>{version}\2',
+              content,
+              count=1,
+              flags=re.MULTILINE,
+          )
+
+          # Replace each sha256 line in order of appearance.
+          # The regex matches:  sha256 "..." (with any leading whitespace)
+          sha_index = 0
+          def replace_sha(match):
+              global sha_index
+              if sha_index >= len(checksums):
+                  return match.group(0)
+              replacement = f'{match.group(1)}{checksums[sha_index]}{match.group(3)}'
+              sha_index += 1
+              return replacement
+
+          content = re.sub(
+              r'(^\s*sha256\s+")[^"]+(")',
+              replace_sha,
+              content,
+              flags=re.MULTILINE,
+          )
+
+          if sha_index != len(checksums):
+              print(f"::error::Expected 4 sha256 lines but found {sha_index}", file=sys.stderr)
+              sys.exit(1)
+
+          with open(formula_path, "w") as f:
+              f.write(content)
+
+          print(f"Updated {formula_path} to version {version}")
+          print(f"  darwin_arm64: {checksums[0]}")
+          print(f"  darwin_amd64: {checksums[1]}")
+          print(f"  linux_arm64:  {checksums[2]}")
+          print(f"  linux_amd64:  {checksums[3]}")
+          PYEOF
+
+          # Sanity check: verify the formula still parses as valid Ruby syntax
+          echo "Verifying formula syntax..."
+          ruby -c "$FORMULA"
+
+      # ── 5. Commit and push the updated formula ─────────────────────────
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.version.outputs.version }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add Formula/beecon.rb
+
+          # Only commit if there are actual changes
+          if git diff --cached --quiet; then
+            echo "No changes to commit — formula is already up to date for v${VERSION}."
+            exit 0
+          fi
+
+          git commit -m "Update beecon to v${VERSION}"
+          git push
