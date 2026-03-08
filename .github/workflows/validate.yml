@@ -1,0 +1,105 @@
+# Validates the Homebrew formula on pushes to main and pull requests.
+# Checks for placeholder checksums, valid SHA256 format, resolvable URLs,
+# and runs brew audit for lint.
+
+name: Validate Formula
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-formula:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Fail fast if the formula still has PLACEHOLDER checksums.
+      # This means release artifacts haven't been published yet.
+      - name: Check for PLACEHOLDER checksums
+        run: |
+          if grep -q '"PLACEHOLDER"' Formula/beecon.rb; then
+            echo "::error::ERROR: Formula contains PLACEHOLDER SHA256 checksums. Run the update-formula workflow after publishing release artifacts."
+            exit 1
+          fi
+
+      # Verify every sha256 value is a valid 64-character lowercase hex string.
+      - name: Validate SHA256 format
+        run: |
+          # Extract all sha256 values from the formula
+          checksums=$(grep -oP 'sha256\s+"\K[^"]+' Formula/beecon.rb)
+
+          if [ -z "$checksums" ]; then
+            echo "::error::No sha256 values found in Formula/beecon.rb"
+            exit 1
+          fi
+
+          invalid=0
+          while IFS= read -r checksum; do
+            if ! echo "$checksum" | grep -qP '^[0-9a-f]{64}$'; then
+              echo "::error::Invalid SHA256 checksum: '$checksum' (must be 64 lowercase hex characters)"
+              invalid=1
+            else
+              echo "Valid checksum: ${checksum:0:12}..."
+            fi
+          done <<< "$checksums"
+
+          if [ "$invalid" -eq 1 ]; then
+            exit 1
+          fi
+
+          echo "All SHA256 checksums are valid."
+
+      # Verify that each download URL returns HTTP 200.
+      # Non-200 responses are warnings (the release may still be in progress).
+      - name: Verify download URLs resolve
+        run: |
+          # Extract the version from the formula
+          version=$(grep -oP 'version\s+"\K[^"]+' Formula/beecon.rb)
+          echo "Formula version: $version"
+
+          # The four platform/arch combinations
+          urls=(
+            "https://github.com/beeconsh/cli/releases/download/v${version}/beecon_darwin_arm64.tar.gz"
+            "https://github.com/beeconsh/cli/releases/download/v${version}/beecon_darwin_amd64.tar.gz"
+            "https://github.com/beeconsh/cli/releases/download/v${version}/beecon_linux_arm64.tar.gz"
+            "https://github.com/beeconsh/cli/releases/download/v${version}/beecon_linux_amd64.tar.gz"
+          )
+
+          warnings=0
+          for url in "${urls[@]}"; do
+            # Follow redirects (-L) since GitHub releases redirect to CDN
+            status=$(curl -sL -o /dev/null -w "%{http_code}" --head --max-time 10 "$url" || echo "000")
+            if [ "$status" -eq 200 ]; then
+              echo "OK ($status): $url"
+            else
+              echo "::warning::Non-200 response ($status) for: $url — release may be in progress"
+              warnings=$((warnings + 1))
+            fi
+          done
+
+          if [ "$warnings" -gt 0 ]; then
+            echo "::warning::$warnings of ${#urls[@]} URLs did not return HTTP 200."
+          else
+            echo "All download URLs resolved successfully."
+          fi
+
+      # Run brew audit to lint the formula.
+      # Allow failure since the formula references macOS binaries that can't
+      # be fetched on a Linux runner.
+      - name: Lint with brew audit
+        continue-on-error: true
+        run: |
+          # Homebrew is pre-installed on GitHub Actions ubuntu runners
+          brew update
+
+          # Copy formula into Homebrew's tap directory so audit can find it
+          mkdir -p "$(brew --repository)/Library/Taps/beeconsh/homebrew-beecon/Formula"
+          cp Formula/beecon.rb "$(brew --repository)/Library/Taps/beeconsh/homebrew-beecon/Formula/"
+
+          brew audit --formula beeconsh/beecon/beecon || true
+          echo "Note: brew audit failures are informational — macOS-only binaries cannot be validated on Linux."
