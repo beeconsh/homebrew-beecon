@@ -5,21 +5,21 @@
 class Beecon < Formula
   desc "Infrastructure language your agent uses to deploy to the cloud"
   homepage "https://github.com/beeconsh/cli"
-  version "0.3.0"
+  version "0.4.0"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/beeconsh/cli/releases/download/v0.3.0/beecon_darwin_amd64.tar.gz"
-      sha256 "fd8b8cfa73f186dcf5df8ba99b0ba35b56ec3054c0247d76eff51f2a04420f71"
+      url "https://github.com/beeconsh/cli/releases/download/v0.4.0/beecon_darwin_amd64.tar.gz"
+      sha256 "1b9f4df591b5604cd298c6c2c0bdfee6ce23193f9c294827b02f9b796f929cda"
 
       define_method(:install) do
         bin.install "beecon"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/beeconsh/cli/releases/download/v0.3.0/beecon_darwin_arm64.tar.gz"
-      sha256 "480a42aa2144c56b7390197cbc591cd8df521d7ed374d2f6311b3f4c63e45385"
+      url "https://github.com/beeconsh/cli/releases/download/v0.4.0/beecon_darwin_arm64.tar.gz"
+      sha256 "60aa19a665727b18fb186b26674dc4eae6d79038de8282cf57a7ec51288ca519"
 
       define_method(:install) do
         bin.install "beecon"
@@ -29,15 +29,15 @@ class Beecon < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/beeconsh/cli/releases/download/v0.3.0/beecon_linux_amd64.tar.gz"
-      sha256 "ea12083e0445fcfec4ec583c80c813af8acd5f48407f74868e2c723b2bc600bd"
+      url "https://github.com/beeconsh/cli/releases/download/v0.4.0/beecon_linux_amd64.tar.gz"
+      sha256 "40e94c3bd5f270a8c0eee1668356f8f5aaa8f517175b407fd4928f2be5958cf3"
       define_method(:install) do
         bin.install "beecon"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/beeconsh/cli/releases/download/v0.3.0/beecon_linux_arm64.tar.gz"
-      sha256 "445ffce0e38ad75ebf39719f367c25ba040549997cce6e78a7c3a0c9e061749e"
+      url "https://github.com/beeconsh/cli/releases/download/v0.4.0/beecon_linux_arm64.tar.gz"
+      sha256 "24ffde76814dad7cd33896096515668e540eaa17078ca8dd70d2d06dfe7e5826"
       define_method(:install) do
         bin.install "beecon"
       end
