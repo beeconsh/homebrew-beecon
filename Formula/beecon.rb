@@ -9,7 +9,7 @@ class Beecon < Formula
   end
 
   # Version and SHA256 values are updated automatically by .github/workflows/update-formula.yml
-  version "0.1.0"
+  version "0.2.0"
 
   # Release artifacts must follow this naming convention:
   #   beecon_{os}_{arch}.tar.gz (e.g., beecon_darwin_arm64.tar.gz)
@@ -18,20 +18,20 @@ class Beecon < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/beeconsh/cli/releases/download/v#{version}/beecon_darwin_arm64.tar.gz"
-      sha256 "48a5e72c3ab0215ea914990e7df72b47016780639a47469ba76bf7a6feccbb15"
+      sha256 "a49c60d47629bba5ca8a42de86c99f722d165647aef1f8b0451b9f754988cc16"
     else
       url "https://github.com/beeconsh/cli/releases/download/v#{version}/beecon_darwin_amd64.tar.gz"
-      sha256 "5dd70282ddd753b8fba0a3cba36f9ade86f1bc40b224707fd1886c4f9f15ebd1"
+      sha256 "cb459b26a1efd7668c2a58c34a2fa40b212e9913fbbb98143978741579852412"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
       url "https://github.com/beeconsh/cli/releases/download/v#{version}/beecon_linux_arm64.tar.gz"
-      sha256 "9324421603daa99064d2e7c09e255da3e46f299c13f249ea13d02e2fcf982d96"
+      sha256 "409a6d65436f3a69899feb6edaf62ca7819be385542c3a8d4b58f09c4d1f702f"
     else
       url "https://github.com/beeconsh/cli/releases/download/v#{version}/beecon_linux_amd64.tar.gz"
-      sha256 "5498e2e2ca246c8ecf0df318da08ea30c3407c736cb5ce2ffbdea361a50b6f79"
+      sha256 "2fdfda25227e41a8d84cef7a872778b46678a275d40393cf34e1df1f6988e2b0"
     end
   end
 
